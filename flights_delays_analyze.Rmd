@@ -1,0 +1,366 @@
+---
+title: "Flights Analyzed"
+author: "Anh Tran"
+date: "10/15/2021"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+Given a csv file contains information on all commercial flights departing the Washington, DC area and arriving New York during January 2004.
+
+The given data set have the following variables:
+
+-   CRS_DEP_TIME -- scheduled departure time
+
+-   CARRIER
+
+-   DEP_TIME -- actual departure time
+
+-   DEST -- destination airport
+
+-   DISTANCE of the flight
+
+-   FL_DATE -- flight date
+
+-   ORIGIN -- origin airport
+
+-   Weather -- (0 = normal conditions, 1 = rain/snow)
+
+-   DAY_WEEK -- (1 = Sunday, 2 = Monday, ..., 7 = Saturday)
+
+-   DAY_OF_MONTH -- (1 = January 1st, ... 31 = January 31st)
+
+-   Flight.Status (on-time or delayed)
+
+We are trying to predict whether or not the flight will be delayed based on the sample data set in 2004.
+
+A flight is consider a delay flight is the one arrive at least 15 minutes after its scheduled.
+
+### Load library
+
+```{r}
+library(knitr)
+library(car)
+library(carData)
+library(gmodels)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(dplyr)
+library(caret)
+```
+
+```{r}
+flight_delays <- read.csv("/Users/anhtran/Documents/BUSN-305-F-2021/test2/FlightDelays.csv", fileEncoding="UTF-8-BOM")
+```
+
+### Dimension of the data set
+
+```{r}
+kable(dim(flight_delays))
+```
+
+### Structure of the data set
+
+```{r}
+kable(str(flight_delays))
+```
+
+### Example of the first 5 lines from given data set
+
+```{r}
+kable(flight_delays[1:5,c("CRS_DEP_TIME","CARRIER","DEP_TIME","DEST", "DISTANCE", "FL_DATE","ORIGIN","Weather","DAY_WEEK","DAY_OF_MONTH","Flight.Status")])
+```
+
+### Summary of our given data from the csv file which included all lengths, types, and statistical such as mean, median, and mode of each particular variable
+
+```{r}
+kable(summary(flight_delays))
+```
+
+Our data set showed that there are 2201 lines of information in the csv file. For those variable using numeric to determine their meaning such as CRS_DEP_TIMEFL_DATE (scheduled depart time), DEP_TIME (actual depart time), DISTANCE (distance of each flight), Weather (weather at that time), DAY_WEEK (the day flight took place), DAY_OF_MONTH (the particular day of the month when the flight took place) , and Flight.Status (whether or not any particular flight delayed) are also provided min, max, mode, median, mean, the first and third Quartiles of the values of each column.
+
+```{r}
+new_df <- flight_delays %>%
+  mutate(flight.status=case_when(
+    endsWith(Flight.Status, "d") ~ 1,
+    endsWith(Flight.Status, "e") ~ 0
+  ))
+```
+
+New data set after adding one column converted flight status into numeric "1" and "0" instead of "delayed" or "on-time"
+
+```{r}
+kable(head(new_df,5))
+```
+
+### Bar plot showing number of flight delayed vs on time
+
+```{r}
+counts <- table(flight_delays$Flight.Status)
+barplot(counts, main="Flights delayed vs ontime", 
+        horiz=TRUE, xlab="Number of flight",
+        ylim = c(0,10), width=2, xlim = c(0,2000),
+        cex.names=0.8,
+        col=c("red", "green"), legend=rownames(counts))
+```
+
+### Scatter plot shows the weather of each day of month
+
+```{r}
+attach(new_df)
+scatterplot(DAY_OF_MONTH~Weather, data = new_df, main="Scatterplot show how the weather different among each day", xlab="The weather", ylab="Day of month")
+```
+
+### Histogram shows scheduled depart time group by Carriers
+
+```{r}
+ggplot(new_df, aes(x = CRS_DEP_TIME)) +
+  geom_histogram(aes(color = CARRIER), fill = "white",
+                position = "identity", bins = 50) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800","#0000FF","#FF0000","#00FF00"
+                                ,"#808080", "#FFFF00", "#FF00FF")) 
+```
+
+### Calculate percentage of flights delay vs on time
+
+```{r}
+flight_delayed <- table(new_df$Flight.Status)
+flight_delayed_proposion_table <- prop.table(flight_delayed)
+kable(flight_delayed_proposion_table)
+```
+
+### Flight delayed = 19.445%
+
+### Flight on time = 80.554%
+
+To determine whether or not any variable in the given data set affect flights arrive on time or delay, we will create cross table between the following four variable: CRS_DEP_TIME, DEST, ORIGIN, Weather and Flight.Status
+
+### Cross table between ORIGIN (where flight departed) and Flight.Status (delayed or not)
+
+```{r}
+CrossTable(new_df$Flight.Status, new_df$ORIGIN)
+```
+
+Based on the results of the column total from the cross table above, we can clearly see that all the flights from given data set which were departed from:
+
+-   Flights from "BWI" delayed by 25.5% and 74.55% were on time.
+
+-   Flights from "DCA" delayed by 16.1% and 83.9% were on time.
+
+-   Flights from "IAD" delayed by 24.8% and 75.2% were on time.
+
+The percentage of delayed flights among three different origin, "BWI", "DCA", and "IAD", demonstrate that the origin of each flight does affect whether or not any particular flight will arrive on time. There were only 16.15% of flights from given data set departed from "DCA" delayed while the other two origin, "BWI" and "IAD", were much higher 25.5% and 24.8%.
+
+### Cross table between DAY_WEEK (flight on a particular day of the week) and Flight.Status (delayed or not)
+
+```{r}
+CrossTable(new_df$DAY_WEEK,new_df$Flight.Status)
+```
+
+There were three days that have the most significant flights delayed showed in the cross table above which were Monday, Thursday, and Saturday. The percentages of flights delayed departed on these days are need to be consider as one of the secondary caused flights delayed.
+
+### Cross table between DEST (where flight arrived) and Flight.Status (delayed or not)
+
+```{r}
+CrossTable(new_df$Flight.Status, new_df$DEST)
+```
+
+The results from the column total of the cross table above showed that destination of flights can affect the ability of being on time.
+
+-   Table showed that there were 24.2% of flights arrived at "EWR" delayed and 75.8% were on time
+
+-   Table showed that there were 21.8% of flights arrived at "JFK" delayed and 78.2% were on time
+
+-   Table showed that there were 15.9% of flights arrived at "EWR" delayed and 84.1% were on time
+
+In conclusion, we can say that flights destination were affect the percentage of flight delayed. There were only 15.9% of flight arrived at "EWR" destination delayed compared to 24.2% and 21.8% delayed at "EWR" and "JFK" destinations.
+
+### Cross table between Weather (weather condition at that time) and Flight.Status (delayed or not)
+
+```{r}
+CrossTable(new_df$Flight.Status, new_df$Weather)
+```
+
+The results from columns total of the table above showed the possibility of weather can affect flights arrive on time or delay.
+
+-   Table showed that 18.3% flights delayed and 81.7% on time if the weather is under normal condition
+
+-   Table showed that 100% flights delayed and 0% on time if the weather is identified as snow or rain
+
+We can clearly see that the weather affected how flights arrived. Based on the result we have from the cross table above, there were 100% flights delayed due to the bad weather condition.
+
+### Cross table between CRS_DEP_TIME (time flight scheduled to depart) and Flight.Status (delayed or not)
+
+```{r}
+CrossTable(new_df$CRS_DEP_TIME, new_df$Flight.Status )
+```
+
+Based on the results showed from the cross table between two variables, CRS_DEP_TIME and Flight.Status from the given data set, there was no strong evidence support that scheduled departure time may affect the possibility of flights delay or on-time. There were some significant amount of flights delayed appeared during certain time such as 46 flights delayed at 14:55, 35 flights delayed at 19:00, and 21 flights delayed at 17:21. The highest percentage of flights delayed was approximately 10.6% which not really high compared to other variables from the data set. I most likely, scheduled departure time does not affect flights arrival time at all.
+
+By the time we perform prediction, there is no variable DEP_TIME so we need to create new data frame without DEP_TIME variable.
+
+```{r}
+df_final <- subset(flight_delays, select = -DEP_TIME)
+
+```
+
+Generate a random seed to randomly split a data set into training and validation set
+
+```{r}
+set.seed(100)
+```
+
+The total observation in table is 2201 = 100% of data
+
+70% of data = 2201 \* 0.7 = 1540.7 rows
+
+Generate random sample using 70% of data
+
+```{r}
+random_sample <- sample(2201,1540.7)
+```
+
+Extract training set using random_sample
+
+```{r}
+flight_delayed_training_set <- df_final[random_sample,]
+```
+
+Create validation data set using the remaining data of 2201 - 1540.7 = 660.3 rows = 30% of data
+
+```{r}
+flight_delayed_validation_set <- df_final[-random_sample,]
+```
+
+Create classification tree model using training data set to predict whether or not any given flight on-time or delayed
+
+```{r}
+flight_delayed_model <- rpart(Flight.Status~.,data = flight_delayed_training_set, method = "class")
+```
+
+Generate prediction for data training set
+
+```{r}
+flight_delayed_training_set_prediction <- predict(flight_delayed_model,type = "class")
+```
+
+#### Create confusion matrix using predicted values and flight_delayed_training_set\$**Flight.Status**
+
+```{r}
+CrossTable(flight_delayed_training_set_prediction, flight_delayed_training_set$Flight.Status)
+```
+
+The accuracy of the tree model is percentage of all cases classified correctly
+
+Accuracy = (true negative + true positive) / N = (94 + 1208) / 1540 = 0.061 + 0.784 = 0.845
+
+It indicates that the models classified correctly 84.5% of the cases.
+
+Misclassification rate = (false negative + false positive) / N = (22 + 216) / 1540 = 0.014 + 1.14 = 1.154. The model incorrectly classified about 11.5% of all training cases. This is a poor model performance
+
+Classification tree tend to show higher accuracy on training data set used to develop tree model, we need to evaluate the model accuracy and misclassification rate on the unused validation set
+
+#### Generate predictions for validation set using flight_delayed_models
+
+```{r}
+flight_delayed_validation_set_prediction <- predict(flight_delayed_model,type = "class", newdata = flight_delayed_validation_set)
+```
+
+#### Create confusion matrix for validation data set
+
+```{r}
+CrossTable(flight_delayed_validation_set_prediction, flight_delayed_validation_set$Flight.Status)
+```
+
+The accuracy of the tree model is percentage of all cases classified correctly
+
+Accuracy = (true negative + true positive) / N = (33 + 525) / 661 = 0.05 + 0.794 = 0.844
+
+It indicates that the models classified correctly 84.4% of the cases and it very close to the accuracy on the training set
+
+Misclassification rate = (false negative + false positive) / N = (18 + 85) / 661 = 0.027 + 0.129 = 0.156. The model incorrectly classified about 15.6% of all training cases. This is a poor model performance
+
+To understand the rules which lead to flight delayed vs on-time, we need to draw a decision tree model using the flight_delayed_model
+
+```{r}
+rpart.plot(flight_delayed_model)
+```
+
+Five of the terminal nodes correspond to cases with P yes \> 0.5.Observation of these nodes are classified as condition which responded to flights arrive "on-time". These nodes followed the rules:
+
+-   Flights on-time = FL_DATE(flights departed on 4,5,15,16,18,26,27,28 of January, 2004), not in list of carrier (CO,DH,MQ,RU,UA)
+
+-   Flights on-time = FL_DATE(flights departed on 4,5,15,16,18,26,27,28 of January, 2004), in list of carrier (CO,DH,MQ,RU,UA), not departed on 26 and 27 of January, 2004, have scheduled departure time later than 5:13pm, and have flight number \< 7303
+
+-   Flights on-time = FL_DATE(flights departed on 4,5,15,16,18,26,27,28 of January, 2004), in list of carrier (CO,DH,MQ,RU,UA), not departed on 26 and 27 of January, 2004, have scheduled departure time earlier than 5:13pm, departure date on 5,16,18 of January, 2004, and have scheduled departure time later than 1:08pm
+
+-   Flights on-time = FL_DATE(flights departed on 4,5,15,16,18,26,27,28 of January, 2004), in list of carrier (CO,DH,MQ,RU,UA), not departed on 26 and 27 of January, 2004, have scheduled departure time earlier than 5:13pm, departure date not on 5,16,18 of January, 2004
+
+-   Flights on-time = not departed on on 4,5,15,16,18,26,27,28 of January, 2004
+
+To have better classification tree I would remove the CRS_DEP_TIME, FL_DATE, and FL_NUM variables
+
+```{r}
+#Drop CRS_DEP_TIME, FL_DATE, and FL_NUM variables from data frame
+df_final_drop <- subset(flight_delays, select = -c(CRS_DEP_TIME,FL_DATE,FL_NUM,DEP_TIME))
+```
+
+```{r}
+#Extract training set after dropped CRS_DEP_TIME, FL_DATE,DEP_TIME and FL_NUM variables from data frame using random_sample
+flight_delayed_training_set_after_dropped <- df_final_drop[random_sample,]
+```
+
+```{r}
+#Create classification tree model using training data set after dropped CRS_DEP_TIME, FL_DATE, DEP_TIME and FL_NUM variables from data frame
+flight_delayed_model_after_dropped <- rpart(Flight.Status~.,data = flight_delayed_training_set_after_dropped, method = "class")
+```
+
+#### Create new decision tree model using the flight_delayed_model_after_dropped
+
+```{r}
+rpart.plot(flight_delayed_model_after_dropped)
+```
+
+This tree model is much better fit compared to the previous one. For instance, flights arrive on time:
+
+-   If flights under good weather condition and does not have carrier such as CO,DH,MQ,RU
+
+-   If flights under good weather condition, have carrier such as CO,DH,MQ,RU, flight between the 4th and 6th of January, 2004, and the flight destination is not EWR.
+
+-   If flights under good weather condition, have carrier such as CO,DH,MQ,RU, and flight before the 4th of January, 2004
+
+-   If flights under good weather condition, have carrier such as CO,DH,MQ,RU, have destination as LGA, and flight before 15th of January, 2004
+
+-   If flights under good weather condition, have carrier such as CO,DH,MQ,RU, have destination as LGA, flight after 26th of January, 2004, and flight between Wednesday and Satutday.
+
+-   If flights under good weather condition, have carrier such as CO,DH,MQ,RU, have destination as LGA, flight after 17th of January, 2004
+
+-   If flights under good weather condition, have carrier such as CO,DH,MQ,RU, have destination as LGA, and flight before 26th of January, 2004
+
+## Conclusion
+
+My conclusion based on analyzed data from given data set of information on all commercial flights departing the Washington, DC area and arriving at New York during January 2004 are:
+
+-   Scheduled departure time (CRS_DEP_TIME), actual departure time (DEP_TIME), and flight date (FL_DATE) does not affect the possibility of flights delay or not. There were some cases appeared in certain time but have low percentage compared to the other variables. There were not clear connection between these three variables and the rest from the data set caused significant number of flights delayed
+
+-   The most significant variable causing flights delayed is the weather (WEATHER). The weather caused 100% of flights delayed despite any other affected of other variables.
+
+-   There were very number of flights delayed which departed between the 4th and 6th of January, 2004. This information not strong enough to support that flights delayed caused by date.
+
+-   There was approximately 19.6% of flights delayed which departed on Monday, 17.5% on Thursday, and 15.9% on Saturday. These numbers are not significant but still need to consider as a minor issue caused flights delayed.
+
+-   The variable DEST (destination airport) and ORIGIN (origin airport) does affect flights delayed may depend on how busy they are by the time flight depart or arrive. The percentages were vary from above 15% to below 26% approximately base on different airports. Time and date may be two more factors caused how busy each airport.
+
+-   There were no evidence showed DISTANCE (distance of flights) affect flights delayed.
+
+-   Both tree models model above showed that CARRIER variable does affected the possibility of flights delayed. The following carriers were show in the tree model: "CO","DH","MQ", and "RU".
